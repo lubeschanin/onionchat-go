@@ -1,5 +1,7 @@
 # onionchat-go
 
+[![tests](https://github.com/lubeschanin/onionchat-go/actions/workflows/test.yml/badge.svg)](https://github.com/lubeschanin/onionchat-go/actions/workflows/test.yml)
+
 Anonymous chat server for Tor Onion Services. Single binary, zero dependencies, no JavaScript.
 
 Go implementation of [onionchat](https://github.com/lubeschanin/onionchat) (Python).

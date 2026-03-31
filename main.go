@@ -4,6 +4,7 @@ package main
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"html"
 	"log"
@@ -375,15 +376,26 @@ func handleMessages(s *store) http.HandlerFunc {
 		}
 		flusher.Flush()
 
+		timer := time.NewTimer(pingInterval)
+		defer timer.Stop()
+
 		for {
 			select {
 			case <-ch:
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				timer.Reset(pingInterval)
 				for _, m := range s.since(lastID) {
 					fmt.Fprint(w, renderMsg(m))
 					lastID = m.ID
 				}
 				flusher.Flush()
-			case <-time.After(pingInterval):
+			case <-timer.C:
+				timer.Reset(pingInterval)
 				fmt.Fprint(w, "<!-- ping -->\n")
 				flusher.Flush()
 			case <-r.Context().Done():
@@ -410,8 +422,8 @@ func handleSend(s *store) http.HandlerFunc {
 
 		nick := getNick(r, w)
 		text := strings.TrimSpace(r.FormValue("msg"))
-		if len(text) > maxMsgLen {
-			text = text[:maxMsgLen]
+		if runes := []rune(text); len(runes) > maxMsgLen {
+			text = string(runes[:maxMsgLen])
 		}
 
 		if text != "" {
@@ -438,19 +450,22 @@ func handleFavicon(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(204)
 }
 
+type apiMessage struct {
+	Nick string `json:"nick"`
+	Time string `json:"time"`
+	Text string `json:"text"`
+}
+
 func handleAPIMessages(s *store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		setSecurityHeaders(w)
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		msgs := s.snapshot()
-		fmt.Fprint(w, "[")
+		out := make([]apiMessage, len(msgs))
 		for i, m := range msgs {
-			if i > 0 {
-				fmt.Fprint(w, ",")
-			}
-			fmt.Fprintf(w, `{"nick":%q,"time":%q,"text":%q}`, m.Nick, m.Time, m.Text)
+			out[i] = apiMessage{Nick: m.Nick, Time: m.Time, Text: m.Text}
 		}
-		fmt.Fprint(w, "]")
+		json.NewEncoder(w).Encode(out)
 	}
 }
 

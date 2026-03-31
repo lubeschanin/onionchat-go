@@ -399,7 +399,7 @@ func TestAPIMessagesEmpty(t *testing.T) {
 	w := httptest.NewRecorder()
 	handleAPIMessages(s)(w, r)
 
-	if w.Body.String() != "[]" {
+	if strings.TrimSpace(w.Body.String()) != "[]" {
 		t.Errorf("expected '[]', got %q", w.Body.String())
 	}
 }

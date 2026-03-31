@@ -3,6 +3,7 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"html"
@@ -128,14 +129,13 @@ func (s *store) add(nick, text string) bool {
 		}
 	}
 
-	// Notify listeners
+	// Notify listeners (channels are persistent, not cleared)
 	for _, ch := range s.listeners {
 		select {
 		case ch <- struct{}{}:
-		default:
+		default: // already has pending notification
 		}
 	}
-	s.listeners = s.listeners[:0]
 
 	return true
 }
@@ -146,6 +146,17 @@ func (s *store) subscribe() chan struct{} {
 	ch := make(chan struct{}, 1)
 	s.listeners = append(s.listeners, ch)
 	return ch
+}
+
+func (s *store) unsubscribe(ch chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, c := range s.listeners {
+		if c == ch {
+			s.listeners = append(s.listeners[:i], s.listeners[i+1:]...)
+			return
+		}
+	}
 }
 
 func (s *store) snapshot() []message {
@@ -363,9 +374,10 @@ func handleMessages(s *store) http.HandlerFunc {
 		}
 		flusher.Flush()
 
-		for {
-			ch := s.subscribe()
+		ch := s.subscribe()
+		defer s.unsubscribe(ch)
 
+		for {
 			select {
 			case <-ch:
 				for _, m := range s.since(lastID) {
@@ -454,9 +466,10 @@ func handleAPIStatus(s *store) http.HandlerFunc {
 }
 
 func handleClear(s *store, secret string) http.HandlerFunc {
+	secretBytes := []byte(secret)
 	return func(w http.ResponseWriter, r *http.Request) {
 		setSecurityHeaders(w)
-		if r.URL.Query().Get("secret") == secret {
+		if subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("secret")), secretBytes) == 1 {
 			s.clear()
 		}
 		http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -469,6 +482,7 @@ func main() {
 	clearSecret := os.Getenv("CLEAR_SECRET")
 	if clearSecret == "" {
 		clearSecret = randomHex(8)
+		fmt.Fprintf(os.Stderr, "[*] Generated CLEAR_SECRET (use env var to set permanently): %s\n", clearSecret)
 	}
 
 	s := newStore()
@@ -482,7 +496,12 @@ func main() {
 	http.HandleFunc("/api/status", handleAPIStatus(s))
 	http.HandleFunc("/clear", handleClear(s, clearSecret))
 
-	fmt.Printf("[*] Clear-URL: /clear?secret=%s\n", clearSecret)
 	fmt.Println("[*] Listening on 127.0.0.1:8181")
-	log.Fatal(http.ListenAndServe("127.0.0.1:8181", nil))
+	srv := &http.Server{
+		Addr:              "127.0.0.1:8181",
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		// No WriteTimeout — would kill streaming connections
+	}
+	log.Fatal(srv.ListenAndServe())
 }

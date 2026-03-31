@@ -7,6 +7,8 @@ Anonymous chat server for Tor Onion Services. Single binary, zero dependencies, 
 
 Go implementation of [onionchat](https://github.com/lubeschanin/onionchat) (Python).
 
+![onionchat in Tor Browser](screenshot.png)
+
 ## Quickstart
 
 ```bash

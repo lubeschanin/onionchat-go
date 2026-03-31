@@ -338,48 +338,6 @@ func TestTooLongCookieGetsNewNick(t *testing.T) {
 	}
 }
 
-// --- Clear ---
-
-func TestClearWrongSecret(t *testing.T) {
-	s := freshStore()
-	postMsg(handleSend(s), "hi", "Fox-ab12")
-
-	r := httptest.NewRequest("GET", "/clear?secret=wrong", nil)
-	w := httptest.NewRecorder()
-	handleClear(s, "correct")(w, r)
-
-	if s.msgCount() != 1 {
-		t.Errorf("expected 1 message, got %d", s.msgCount())
-	}
-}
-
-func TestClearCorrectSecret(t *testing.T) {
-	s := freshStore()
-	postMsg(handleSend(s), "hi", "Fox-ab12")
-
-	r := httptest.NewRequest("GET", "/clear?secret=correct", nil)
-	w := httptest.NewRecorder()
-	handleClear(s, "correct")(w, r)
-
-	if s.msgCount() != 0 {
-		t.Errorf("expected 0 messages, got %d", s.msgCount())
-	}
-}
-
-func TestClearPreservesMsgCounter(t *testing.T) {
-	s := freshStore()
-	postMsg(handleSend(s), "before", "Fox-ab12")
-	counterBefore := s.counter
-
-	r := httptest.NewRequest("GET", "/clear?secret=s", nil)
-	w := httptest.NewRecorder()
-	handleClear(s, "s")(w, r)
-
-	if s.counter != counterBefore {
-		t.Errorf("counter changed: %d != %d", s.counter, counterBefore)
-	}
-}
-
 // --- Body limit ---
 
 func TestBodyLimitRejectsLargePost(t *testing.T) {

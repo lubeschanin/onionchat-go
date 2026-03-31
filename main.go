@@ -3,13 +3,11 @@ package main
 
 import (
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"html"
 	"log"
 	"net/http"
-	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -177,13 +175,6 @@ func (s *store) since(lastID int) []message {
 		}
 	}
 	return out
-}
-
-func (s *store) clear() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.msgs = s.msgs[:0]
-	// counter intentionally NOT reset
 }
 
 func (s *store) addStream() bool {
@@ -366,6 +357,12 @@ func handleMessages(s *store) http.HandlerFunc {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, msgHead)
 
+		// Subscribe BEFORE snapshot to close the race window —
+		// any message arriving between snapshot and subscribe
+		// will still trigger the channel.
+		ch := s.subscribe()
+		defer s.unsubscribe(ch)
+
 		msgs := s.snapshot()
 		lastID := -1
 		for _, m := range msgs {
@@ -373,9 +370,6 @@ func handleMessages(s *store) http.HandlerFunc {
 			lastID = m.ID
 		}
 		flusher.Flush()
-
-		ch := s.subscribe()
-		defer s.unsubscribe(ch)
 
 		for {
 			select {
@@ -465,26 +459,9 @@ func handleAPIStatus(s *store) http.HandlerFunc {
 	}
 }
 
-func handleClear(s *store, secret string) http.HandlerFunc {
-	secretBytes := []byte(secret)
-	return func(w http.ResponseWriter, r *http.Request) {
-		setSecurityHeaders(w)
-		if subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("secret")), secretBytes) == 1 {
-			s.clear()
-		}
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-	}
-}
-
 // --- Main ---
 
 func main() {
-	clearSecret := os.Getenv("CLEAR_SECRET")
-	if clearSecret == "" {
-		clearSecret = randomHex(8)
-		fmt.Fprintf(os.Stderr, "[*] Generated CLEAR_SECRET (use env var to set permanently): %s\n", clearSecret)
-	}
-
 	s := newStore()
 
 	http.HandleFunc("/", handleIndex(s))
@@ -494,7 +471,6 @@ func main() {
 	http.HandleFunc("/favicon.ico", handleFavicon)
 	http.HandleFunc("/api/messages", handleAPIMessages(s))
 	http.HandleFunc("/api/status", handleAPIStatus(s))
-	http.HandleFunc("/clear", handleClear(s, clearSecret))
 
 	fmt.Println("[*] Listening on 127.0.0.1:8181")
 	srv := &http.Server{

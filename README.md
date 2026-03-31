@@ -45,7 +45,7 @@ Messages are pushed via HTTP streaming (`http.Flusher`). No polling, no refresh,
 - **Real-time delivery** — messages pushed via channel notification, not polling
 - **Ephemeral** — in-memory ring buffer (200 messages). Process dies, everything is gone.
 - **JSON API** — `GET /api/messages` and `GET /api/status`
-- **Hardened** — CSP, rate limiting, body size limit, duplicate filter
+- **Hardened** — CSP, rate limiting, body size limit, duplicate filter, HTTP timeouts
 
 ## Endpoints
 
@@ -57,7 +57,6 @@ Messages are pushed via HTTP streaming (`http.Flusher`). No polling, no refresh,
 | `POST` | `/send` | Send a message (form data: `msg`) |
 | `GET` | `/api/messages` | JSON array of all messages (ISO 8601 timestamps) |
 | `GET` | `/api/status` | JSON: streams, messages, limits |
-| `GET` | `/clear?secret=<s>` | Clear all messages (operator only) |
 | `GET` | `/favicon.ico` | Empty (204) |
 
 ## Tor configuration
@@ -76,11 +75,7 @@ sudo systemctl reload tor
 cat /var/lib/tor/onionchat/hostname
 ```
 
-## Environment variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `CLEAR_SECRET` | random (printed on startup) | Secret for `/clear` endpoint |
+To clear all messages, restart the process.
 
 ## Security
 
@@ -90,11 +85,13 @@ cat /var/lib/tor/onionchat/hostname
 | Body size | `http.MaxBytesReader` rejects >2 KB (413) |
 | Rate limiting | 1 msg/s per nickname |
 | Duplicate filter | Same text from same nick blocked within 30s |
-| Message length | 500 chars max |
+| Message length | 500 runes max (UTF-8 safe) |
 | Stream limit | 100 concurrent connections |
 | Cookie | `HttpOnly`, `SameSite=Strict` |
 | Headers | CSP, X-Content-Type-Options, Referrer-Policy, X-Frame-Options |
 | Server header | `onionchat` (Go default hidden) |
+| HTTP timeouts | `ReadHeaderTimeout: 10s`, `IdleTimeout: 120s` (Slowloris mitigation) |
+| Stream delivery | Subscribe before snapshot — no missed messages |
 | 404 | Empty response, no framework fingerprint |
 
 **Note on CPU usage:** The streaming connection keeps the browser in a "loading" state, which can use 15-20% CPU in Tor Browser. Press `X` (stop loading) to pause the stream and reduce CPU — you will still see all messages loaded so far.
@@ -104,7 +101,7 @@ cat /var/lib/tor/onionchat/hostname
 | Resource | Limit |
 |---|---|
 | Messages in memory | 200 (ring buffer) |
-| Message length | 500 chars |
+| Message length | 500 runes |
 | Request body | 2 KB |
 | Concurrent streams | 100 |
 | Rate limit | 1 msg/s per nick |
@@ -116,7 +113,7 @@ cat /var/lib/tor/onionchat/hostname
 go test -v ./...
 ```
 
-32 tests covering XSS, rate limiting, duplicate filter, cookie validation, security headers, body limits, stream limits, API endpoints, and more.
+29 tests covering XSS, rate limiting, duplicate filter, cookie validation, security headers, body limits, stream limits, API endpoints, and more.
 
 ## Cross-compile
 
@@ -129,15 +126,15 @@ GOOS=linux GOARCH=arm64 go build -o onionchat-linux-arm .
 
 ```
 onionchat-go/
-├── main.go          # Server (488 lines)
-├── main_test.go     # Tests (32 tests)
+├── main.go          # Server (502 lines)
+├── main_test.go     # Tests (29 tests)
 ├── go.mod
 └── README.md
 ```
 
 ## See also
 
-- [onionchat](https://github.com/lubeschanin/onionchat) — Python implementation (FastAPI, 346 lines, 38 tests)
+- [onionchat](https://github.com/lubeschanin/onionchat) — Python implementation (FastAPI, 345 lines, 35 tests)
 
 ## License
 

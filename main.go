@@ -48,13 +48,17 @@ var nickRE = regexp.MustCompile(`^[A-Za-z]{2,10}-[0-9a-f]{4}$`)
 
 func randomHex(n int) string {
 	b := make([]byte, n)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand failed: " + err.Error())
+	}
 	return hex.EncodeToString(b)
 }
 
 func makeNick() string {
 	b := make([]byte, 1)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand failed: " + err.Error())
+	}
 	return words[int(b[0])%len(words)] + "-" + randomHex(2)
 }
 
@@ -119,7 +123,7 @@ func (s *store) add(nick, text string) bool {
 
 	// Clean old rate limit entries
 	if len(s.lastSent) > 256 {
-		cutoff := now.Add(-2 * time.Duration(rateLimitS*float64(time.Second)))
+		cutoff := now.Add(-time.Duration(dupWindowS * float64(time.Second)))
 		for k, v := range s.lastSent {
 			if v.Before(cutoff) {
 				delete(s.lastSent, k)
